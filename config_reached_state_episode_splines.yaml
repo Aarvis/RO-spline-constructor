@@ -1,0 +1,55 @@
+dataset_root: E:\Robot-Origami-Challenge\Sampled_Reprocessed_Dataset
+num_workers: 1
+max_episodes: 1
+
+input:
+  state_array_name: state_65d.npy
+  timestamps_array_name: timestamps.npy
+  fallback_fps: 30.0
+  use_timestamps_if_available: true
+
+preprocessing:
+  smoothing:
+    enabled: true
+    method: savgol
+    savgol_window: 7
+    savgol_polyorder: 3
+
+normalization:
+  center_method: median
+  lower_percentile: 5.0
+  upper_percentile: 95.0
+  min_scale: 1.0e-4
+  stats_npz_name: reached_state_spline_normalization_stats.npz
+  stats_json_name: reached_state_spline_normalization_summary.json
+  stats_table_csv_name: reached_state_spline_normalization_per_dimension.csv
+  stats_table_parquet_name: reached_state_spline_normalization_per_dimension.parquet
+
+fit:
+  degree: 3
+  enabled_error_signals:
+    - position
+    # - velocity
+    # - acceleration
+    # - jerk
+  initial_internal_knots: 4
+  max_internal_knots: 1600
+  max_control_points: null
+  max_iterations: 1600
+  min_knot_spacing_frames: 5
+  local_window_size: 1
+  endpoint_weight: 1000
+  epsilon_position: 0.35
+  epsilon_velocity: 0.60
+  epsilon_acceleration: 0.80
+  epsilon_jerk: 1.20
+  report_episode_observation_rmse_distribution: true
+
+output:
+  run_name: sampled_reached_state_episode_spline_run
+  overwrite: false
+  spline_npz_name: reached_state_adaptive_spline.npz
+  spline_index_name: reached_state_adaptive_spline_index.parquet
+  fit_summary_parquet_name: reached_state_spline_fit_episode_summary.parquet
+  fit_summary_csv_name: reached_state_spline_fit_episode_summary.csv
+  resolved_config_name: resolved_config.yaml

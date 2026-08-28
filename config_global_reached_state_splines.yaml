@@ -1,0 +1,27 @@
+dataset_root: D:/Robot-Origami-Challenge/Sampled_Reprocessed_Dataset
+num_workers: 4
+max_episodes: null
+
+spline:
+  target: state_65d
+  spline_scope: full_episode
+  degree: 3
+  epsilon: 0.001746
+  error_metric: mae_65d # mae_65d # max_abs_joint # rmse_65d
+  initial_internal_knots: 4
+  max_internal_knots: 10000
+  min_knot_spacing_frames: 1
+  endpoint_weight: 1000.0
+
+output:
+  output_dir: E:\Robot-Origami-Challenge\dataset-processing\reached_state_episode_spline_constructor\temp
+  target_array_name: state_65d.npy
+  state_array_name: state_65d.npy
+  spline_npz_name: global_reached_state_spline.npz
+  spline_index_name: global_reached_state_spline_index.parquet
+  save_delta_from_first_state: true
+  delta_spline_npz_name: global_delta_reached_state_from_first_state_spline.npz
+  delta_spline_index_name: global_delta_reached_state_from_first_state_spline_index.parquet
+  run_summary_csv_name: global_reached_state_spline_run_summary.csv
+  run_summary_yaml_name: global_reached_state_spline_run_summary.yaml
+  overwrite: true

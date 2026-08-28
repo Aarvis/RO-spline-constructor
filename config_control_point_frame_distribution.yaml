@@ -1,0 +1,44 @@
+dataset_root: E:\Robot-Origami-Challenge\dataset-processing\reached_state_episode_spline_constructor\temp # spline root
+source_dataset_root: E:/Robot-Origami-Challenge/Sampled_Reprocessed_Dataset # original state_65d source
+episodes_subdir: episodes
+arrays_subdir: arrays
+max_episodes: null
+
+# Use only the full-episode reached-state spline.
+input:
+  spline_npz_name: global_reached_state_spline.npz
+  state_array_name: state_65d.npy
+  timestamps_array_name: timestamps.npy
+  fallback_fps: 30.0
+  use_timestamps_if_available: true
+  allowed_target_modes:
+    - global_reached_state
+
+analysis:
+  # "N" means that exactly N unique knots lie strictly inside the pair, so the
+  # two endpoint unique-knot indices differ by N + 1.
+  intermediate_control_point_counts: [2, 3, 7, 9, 11, 15, 29, 44, 49, 63]
+  rounded_frame_method: nearest
+
+  percentiles: [0, 1, 2, 5, 10, 15, 25, 50, 75, 85, 95, 99, 99.9, 100]
+  absolute_error_percentiles: [0, 1, 2, 5, 10, 15, 25, 50, 75, 85, 95, 99, 99.9, 99.99, 99.999, 100]
+  histogram_metric: frames_inclusive
+
+output:
+  run_name: reached_state_knot_frame_distribution
+  overwrite: true
+  episode_ratios_csv: episode_knot_frame_ratios.csv
+  ratio_distribution_csv: knot_frame_ratio_distribution.csv
+  pair_details_parquet: knot_pair_frame_counts.parquet
+  pair_distribution_csv: knot_pair_frame_distribution.csv
+  pair_histogram_csv: knot_pair_frame_histogram.csv
+  absolute_error_distribution_csv: absolute_error_distribution.csv
+  signal_error_distribution_csv: signal_absolute_error_distribution.csv
+  signal_error_per_episode_csv: signal_absolute_error_per_episode.csv
+  signal_error_per_dimension_csv: signal_absolute_error_per_dimension.csv
+  signal_error_per_episode_dimension_csv: signal_absolute_error_per_episode_dimension.csv
+  summary_json: summary.json
+  resolved_config_yaml: resolved_config.yaml
+
+
+
