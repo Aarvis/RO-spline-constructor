@@ -1,0 +1,33 @@
+dataset_root: D:/Robot-Origami-Challenge/Competition_Paper_Reprocessed_Dataset
+num_workers: 10
+max_episodes: 10
+
+spline:
+  target: action_65d
+  spline_scope: full_episode
+  # Every selected episode is fit once for each degree, in this order.
+  degrees: [3]
+  epsilon: 0.017
+  error_metric: max_abs_joint
+  initial_internal_knots: 4
+  max_internal_knots: 10000
+  min_knot_spacing_frames: 1
+  endpoint_weight: 1000.0
+
+output:
+  # Required for multi-degree runs. Each degree writes under temp2/degree_<degree>/.
+  output_dir: E:/Robot-Origami-Challenge/dataset-processing/action_episode_spline_constructor/temp2
+  degree_output_dir_pattern: degree_{degree}
+  target_array_name: action_65d.npy
+  state_array_name: state_65d.npy
+  spline_npz_name: global_action_spline.npz
+  spline_index_name: global_action_spline_index.parquet
+  save_delta_from_initial_state: true
+  delta_spline_npz_name: global_delta_action_from_initial_state_spline.npz
+  delta_spline_index_name: global_delta_action_from_initial_state_spline_index.parquet
+  run_summary_csv_name: global_action_spline_run_summary.csv
+  run_summary_yaml_name: global_action_spline_run_summary.yaml
+  summary_csv_name: multi_degree_action_spline_summary.csv
+  episode_results_csv_name: multi_degree_action_spline_episode_results.csv
+  summary_yaml_name: multi_degree_action_spline_summary.yaml
+  overwrite: true

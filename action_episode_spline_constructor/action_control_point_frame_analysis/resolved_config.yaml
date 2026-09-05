@@ -1,0 +1,62 @@
+spline_run_roots:
+- D:/Robot-Origami-Challenge/dataset-processing/action_episode_spline_constructor/temp
+source_dataset_root: D:/Robot-Origami-Challenge/Competition_Paper_Reprocessed_Dataset
+episodes_subdir: episodes
+arrays_subdir: arrays
+max_episodes: null
+input:
+  spline_npz_name: global_action_spline.npz
+  action_array_name: action_65d.npy
+  timestamps_array_name: timestamps.npy
+  fallback_fps: 30.0
+  use_timestamps_if_available: true
+  allowed_target_modes:
+  - global_action
+  - global_delta_action_from_initial_state
+analysis:
+  intermediate_control_point_counts:
+  - 2
+  - 3
+  - 7
+  - 9
+  - 11
+  - 15
+  - 29
+  - 44
+  - 49
+  - 63
+  rounded_frame_method: nearest
+  percentiles:
+  - 0
+  - 1
+  - 2
+  - 5
+  - 10
+  - 25
+  - 50
+  - 75
+  - 95
+  - 99
+  - 99.9
+  - 100
+  absolute_error_percentiles:
+  - 0
+  - 1
+  - 2
+  - 5
+  - 10
+  - 25
+  - 50
+  - 75
+  - 95
+  - 99
+  - 99.9
+  - 99.99
+  - 100
+  histogram_metric: frames_inclusive
+output:
+  output_dir: D:/Robot-Origami-Challenge/dataset-processing/action_episode_spline_constructor/action_control_point_frame_analysis
+  overwrite: true
+resolved_run_roots:
+- E:\Robot-Origami-Challenge\dataset-processing\action_episode_spline_constructor\temp
+resolved_output_dir: E:\Robot-Origami-Challenge\dataset-processing\action_episode_spline_constructor\action_control_point_frame_analysis
