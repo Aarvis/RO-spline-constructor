@@ -1,0 +1,14 @@
+# Numerical spline fitting and signal processing.
+numpy>=1.24
+scipy>=1.10
+
+# Dataset metadata, CSV output, and Parquet input/output.
+pandas>=2.0
+pyarrow>=14.0
+
+# YAML configuration and terminal progress reporting.
+PyYAML>=6.0
+tqdm>=4.66
+
+# Hugging Face Hub dataset downloads, for example snapshot_download().
+huggingface-hub>=0.24
