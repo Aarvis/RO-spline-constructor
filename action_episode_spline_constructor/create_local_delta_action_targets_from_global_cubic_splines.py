@@ -292,19 +292,53 @@ def percentile_stats(values: list[float] | np.ndarray) -> dict[str, float | int 
     array = np.asarray(values, dtype=np.float64)
     array = array[np.isfinite(array)]
     if array.size == 0:
-        return {"count": 0, "min": None, "mean": None, "median": None, "max": None}
-    return {
+        return {
+            "count": 0,
+            "min": None,
+            "p1": None,
+            "p5": None,
+            "p10": None,
+            "p25": None,
+            "p50": None,
+            "p75": None,
+            "p90": None,
+            "p95": None,
+            "p99": None,
+            "p99_9": None,
+            "p99_99": None,
+            "max": None,
+        }
+    stats: dict[str, float | int | None] = {
         "count": int(array.size),
         "min": float(np.min(array)),
-        "mean": float(np.mean(array)),
-        "median": float(np.median(array)),
+        "p1": float(np.percentile(array, 1)),
         "p5": float(np.percentile(array, 5)),
+        "p10": float(np.percentile(array, 10)),
         "p25": float(np.percentile(array, 25)),
+        "p50": float(np.percentile(array, 50)),
         "p75": float(np.percentile(array, 75)),
+        "p90": float(np.percentile(array, 90)),
         "p95": float(np.percentile(array, 95)),
         "p99": float(np.percentile(array, 99)),
+        "p99_9": float(np.percentile(array, 99.9)),
+        "p99_99": float(np.percentile(array, 99.99)),
         "max": float(np.max(array)),
     }
+    return stats
+
+
+def format_distribution(stats: dict[str, float | int | None]) -> str:
+    keys = ("count", "min", "p1", "p5", "p10", "p25", "p50", "p75", "p90", "p95", "p99", "p99_9", "p99_99", "max")
+    values = []
+    for key in keys:
+        value = stats[key]
+        if key == "count":
+            values.append(f"{key}={value}")
+        elif value is None:
+            values.append(f"{key}=n/a")
+        else:
+            values.append(f"{key}={float(value):.6g}")
+    return ", ".join(values)
 
 
 def process_episode(
@@ -318,7 +352,19 @@ def process_episode(
     output_index = output_arrays_dir / cfg.output_index_name
     output_episode_summary = output_arrays_dir / cfg.output_episode_summary_name
     if all(path.exists() for path in (output_npz, output_index, output_episode_summary)) and not cfg.overwrite:
-        return {"episode_uid": episode_dir.name, "status": "skipped_existing", "num_targets": 0}
+        try:
+            existing_summary = json.loads(output_episode_summary.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing_summary = {}
+        return {
+            "episode_uid": episode_dir.name,
+            "status": "skipped_existing",
+            "num_frames": int(existing_summary.get("num_frames", 0)),
+            "candidate_start_frames": int(existing_summary.get("candidate_start_frames", 0)),
+            "num_targets": int(existing_summary.get("targets_created", 0)),
+            "short_horizons_skipped": int(existing_summary.get("short_horizons_skipped", 0)),
+            "frames_without_targets": int(existing_summary.get("frames_without_targets", 0)),
+        }
 
     action = np.load(arrays_dir / cfg.action_array_name).astype(np.float64, copy=False)
     state = np.load(arrays_dir / cfg.state_array_name).astype(np.float64, copy=False)
@@ -507,6 +553,7 @@ def process_episode(
         "candidate_start_frames": len(candidate_start_frames),
         "targets_created": len(sample_ids),
         "short_horizons_skipped": skipped_short_horizon,
+        "frames_without_targets": int(action.shape[0] - len(sample_ids)),
         "target_knot_spans": cfg.target_knot_spans,
         "include_truncated_horizons": cfg.include_truncated_horizons,
         "global_degree": global_degree,
@@ -538,6 +585,7 @@ def process_episode(
         "candidate_start_frames": len(candidate_start_frames),
         "num_targets": len(sample_ids),
         "short_horizons_skipped": skipped_short_horizon,
+        "frames_without_targets": int(action.shape[0] - len(sample_ids)),
         "max_global_frame_mae_65d": float(np.max(global_frame_mae)),
         "max_global_frame_max_abs_joint_error": float(np.max(global_frame_max_abs)),
         "max_restriction_abs_error": max(restriction_errors, default=0.0),
@@ -671,6 +719,8 @@ def write_run_summary(cfg: LocalTargetConfig, results: list[dict[str, Any]]) -> 
     output_root = summary_root(cfg)
     output_root.mkdir(parents=True, exist_ok=True)
     atomic_parquet(pd.DataFrame(results), output_root / f"{cfg.output_tag}_run_summary.parquet")
+    tail_horizon_skips = [int(result.get("short_horizons_skipped", 0)) for result in results]
+    frames_without_targets = [int(result.get("frames_without_targets", 0)) for result in results]
     summary = {
         "config": {
             **asdict(cfg),
@@ -682,6 +732,9 @@ def write_run_summary(cfg: LocalTargetConfig, results: list[dict[str, Any]]) -> 
         "skipped_episodes": sum(result["status"].startswith("skipped") for result in results),
         "total_targets": sum(int(result.get("num_targets", 0)) for result in results),
         "total_short_horizons_skipped": sum(int(result.get("short_horizons_skipped", 0)) for result in results),
+        "total_frames_without_targets": sum(frames_without_targets),
+        "tail_candidate_frames_skipped_for_full_horizon_per_episode": percentile_stats(tail_horizon_skips),
+        "frames_without_local_targets_per_episode": percentile_stats(frames_without_targets),
         "max_global_frame_mae_65d": max(
             (float(result.get("max_global_frame_mae_65d", 0.0)) for result in results), default=0.0
         ),
@@ -718,11 +771,16 @@ def main() -> int:
 
     results = process_all(cfg)
     summary_path = write_run_summary(cfg, results)
+    tail_horizon_skip_stats = percentile_stats([int(result.get("short_horizons_skipped", 0)) for result in results])
+    frames_without_target_stats = percentile_stats([int(result.get("frames_without_targets", 0)) for result in results])
     print(f"Episodes found              : {len(results)}")
     print(f"Processed episodes          : {sum(result['status'] == 'processed' for result in results)}")
     print(f"Skipped episodes            : {sum(result['status'].startswith('skipped') for result in results)}")
     print(f"Local targets created       : {sum(int(result.get('num_targets', 0)) for result in results)}")
-    print(f"Short horizons skipped      : {sum(int(result.get('short_horizons_skipped', 0)) for result in results)}")
+    print(f"Tail starts skipped         : {sum(int(result.get('short_horizons_skipped', 0)) for result in results)}")
+    print(f"Frames without targets      : {sum(int(result.get('frames_without_targets', 0)) for result in results)}")
+    print(f"Tail starts/episode         : {format_distribution(tail_horizon_skip_stats)}")
+    print(f"No-target frames/episode    : {format_distribution(frames_without_target_stats)}")
     print(
         "Worst global frame MAE-65D : "
         f"{max((float(result.get('max_global_frame_mae_65d', 0.0)) for result in results), default=0.0):.8f}"
