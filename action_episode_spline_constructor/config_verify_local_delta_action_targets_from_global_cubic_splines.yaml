@@ -1,0 +1,22 @@
+dataset_root: D:/Robot-Origami-Challenge/Competition_Paper_Reprocessed_Dataset
+num_workers: 64
+max_episodes: null
+
+input:
+  action_array_name: action_65d.npy
+  state_array_name: state_65d.npy
+  local_target_prefix: local_delta_action_cubic
+  target_knot_spans: 10
+
+# Parent-rendered worker progress is emitted at this target cadence.
+progress_update_every_targets: 25
+
+validation:
+  # Stored anchor_state_65d is cross-checked against state_65d[start_frame].
+  anchor_state_tolerance: 1.0e-6
+
+output:
+  # Set null when local targets were written into each episode's arrays directory.
+  output_dir: null
+  # Keep false unless raw per-frame error arrays are needed for a separate investigation.
+  keep_intermediate_error_arrays: false
