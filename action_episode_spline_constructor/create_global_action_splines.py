@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass
 from multiprocessing import Manager
@@ -494,105 +495,74 @@ def process_episode(
 class WorkerFrameProgressRenderer:
     """Keep all worker progress rendering in the parent process."""
 
-    def __init__(self, worker_episode_counts: list[int]) -> None:
-        self.episode_bars = [
+    def __init__(self, num_workers: int) -> None:
+        self.worker_slots: dict[int, int] = {}
+        self.bars = [
             tqdm(
-                total=episode_count,
-                desc=f"Worker {slot + 1} episodes",
-                unit="episode",
+                total=1,
+                desc=f"Worker {slot + 1}: idle",
+                unit="iteration",
                 leave=False,
                 dynamic_ncols=True,
-                position=slot * 2 + 1,
+                position=slot + 1,
             )
-            for slot, episode_count in enumerate(worker_episode_counts)
-        ]
-        self.frame_bars = [
-            tqdm(
-                total=None,
-                desc=f"Worker {slot + 1} frame evals: idle",
-                unit="frame-eval",
-                leave=False,
-                dynamic_ncols=True,
-                position=slot * 2 + 2,
-            )
-            for slot in range(len(worker_episode_counts))
+            for slot in range(num_workers)
         ]
 
     def close(self) -> None:
-        for bar in [*self.episode_bars, *self.frame_bars]:
+        for bar in self.bars:
             bar.close()
 
-    def handle_event(self, event: dict[str, Any]) -> dict[str, Any] | None:
-        worker_index = int(event["worker_index"])
-        if worker_index < 0 or worker_index >= len(self.episode_bars):
-            raise ValueError(f"Invalid worker index: {worker_index}")
-        episode_bar = self.episode_bars[worker_index]
-        frame_bar = self.frame_bars[worker_index]
+    def worker_bar(self, worker_id: int) -> tqdm:
+        if worker_id not in self.worker_slots:
+            if len(self.worker_slots) >= len(self.bars):
+                raise RuntimeError("Received progress events from more workers than configured.")
+            self.worker_slots[worker_id] = len(self.worker_slots)
+        return self.bars[self.worker_slots[worker_id]]
+
+    def handle_event(self, event: dict[str, Any]) -> None:
+        worker_id = int(event["worker_id"])
+        bar = self.worker_bar(worker_id)
         event_type = str(event["event"])
         episode_uid = str(event["episode_uid"])
-        if event_type == "episode_start":
-            frame_bar.reset()
-            frame_bar.set_description(f"Worker {worker_index + 1} frame evals: {episode_uid}")
-            frame_bar.set_postfix(status="loading")
-            return None
         if event_type == "fit_start":
-            frame_bar.set_description(f"Worker {worker_index + 1} frame evals: {episode_uid}")
-            frame_bar.set_postfix(frames=int(event["num_frames"]), iteration=f"0/{event['total_iterations']}")
-            return None
+            bar.reset(total=max(1, int(event["total_iterations"])))
+            bar.set_description(f"Worker {self.worker_slots[worker_id] + 1}: {episode_uid}")
+            bar.set_postfix(frames=int(event["num_frames"]), iteration=f"0/{event['total_iterations']}")
+            return
         if event_type == "fit_update":
             frame_count = int(event["num_frames"])
             iteration = int(event["iteration"])
             total_iterations = int(event["total_iterations"])
-            # Each adaptive iteration evaluates every frame in the active episode.
-            frame_bar.update(frame_count)
-            frame_bar.set_postfix(
+            bar.n = min(iteration, bar.total or iteration)
+            bar.set_postfix(
                 frames=frame_count,
                 iteration=f"{iteration}/{total_iterations}",
                 stop_max=f"{float(event['stop_max']):.6f}",
                 max_mae_65d=f"{float(event['max_mae_65d']):.6f}",
                 control_points_per_frame=f"{float(event['control_points_per_frame']):.4f}",
             )
-            return None
+            bar.refresh()
+            return
         if event_type == "fit_complete":
-            return None
-        if event_type == "episode_complete":
-            episode_bar.update(1)
-            frame_bar.set_postfix(status=event["result"]["status"])
-            return dict(event["result"])
+            bar.refresh()
+            return
         raise ValueError(f"Unknown progress event: {event_type!r}")
 
 
-def process_episode_batch_with_progress(
-    worker_index: int,
-    episode_dirs: list[Path],
-    cfg: SplineConfig,
-    progress_queue: Any,
-) -> list[dict[str, Any]]:
-    results = []
+def process_episode_with_progress(episode_dir: Path, cfg: SplineConfig, progress_queue: Any) -> dict[str, Any]:
+    worker_id = os.getpid()
 
     def publish(event: dict[str, Any]) -> None:
-        progress_queue.put({"worker_index": worker_index, **event})
+        progress_queue.put({"worker_id": worker_id, **event})
 
-    for episode_dir in episode_dirs:
-        progress_queue.put({"worker_index": worker_index, "event": "episode_start", "episode_uid": episode_dir.name})
-        result = process_episode(episode_dir, cfg, progress_callback=publish)
-        results.append(result)
-        progress_queue.put(
-            {"worker_index": worker_index, "event": "episode_complete", "episode_uid": episode_dir.name, "result": result}
-        )
-    return results
+    return process_episode(episode_dir, cfg, progress_callback=publish)
 
 
-def drain_progress_events(
-    progress_queue: Any,
-    renderer: WorkerFrameProgressRenderer,
-    overall_progress: tqdm,
-) -> None:
+def drain_progress_events(progress_queue: Any, renderer: WorkerFrameProgressRenderer) -> None:
     while True:
         try:
-            result = renderer.handle_event(progress_queue.get_nowait())
-            if result is not None:
-                update_overall_progress(overall_progress, result)
+            renderer.handle_event(progress_queue.get_nowait())
         except Empty:
             return
 
@@ -617,20 +587,16 @@ def process_all(cfg: SplineConfig) -> list[dict[str, Any]]:
         return []
     if cfg.num_workers == 1:
         results = []
-        renderer = WorkerFrameProgressRenderer(worker_episode_counts=[len(episode_dirs)])
+        renderer = WorkerFrameProgressRenderer(num_workers=1)
         try:
             with tqdm(total=len(episode_dirs), desc="Fit global action splines", unit="episode", dynamic_ncols=True, position=0) as progress:
                 for episode_dir in episode_dirs:
-                    renderer.handle_event({"worker_index": 0, "event": "episode_start", "episode_uid": episode_dir.name})
                     result = process_episode(
                         episode_dir,
                         cfg,
-                        progress_callback=lambda event: renderer.handle_event({"worker_index": 0, **event}),
+                        progress_callback=lambda event: renderer.handle_event({"worker_id": os.getpid(), **event}),
                     )
                     results.append(result)
-                    renderer.handle_event(
-                        {"worker_index": 0, "event": "episode_complete", "episode_uid": episode_dir.name, "result": result}
-                    )
                     update_overall_progress(progress, result)
         finally:
             renderer.close()
@@ -638,15 +604,14 @@ def process_all(cfg: SplineConfig) -> list[dict[str, Any]]:
 
     results = []
     worker_count = min(cfg.num_workers, len(episode_dirs))
-    worker_episode_dirs = [episode_dirs[worker_index::worker_count] for worker_index in range(worker_count)]
-    renderer = WorkerFrameProgressRenderer(worker_episode_counts=[len(paths) for paths in worker_episode_dirs])
+    renderer = WorkerFrameProgressRenderer(num_workers=worker_count)
     try:
         with Manager() as manager:
             progress_queue = manager.Queue()
             with ProcessPoolExecutor(max_workers=worker_count) as executor:
                 futures = {
-                    executor.submit(process_episode_batch_with_progress, worker_index, paths, cfg, progress_queue): worker_index
-                    for worker_index, paths in enumerate(worker_episode_dirs)
+                    executor.submit(process_episode_with_progress, episode_dir, cfg, progress_queue): episode_dir
+                    for episode_dir in episode_dirs
                 }
                 with tqdm(
                     total=len(futures),
@@ -657,15 +622,17 @@ def process_all(cfg: SplineConfig) -> list[dict[str, Any]]:
                 ) as progress:
                     while futures:
                         completed, _ = wait(futures, timeout=0.1, return_when=FIRST_COMPLETED)
-                        drain_progress_events(progress_queue, renderer, progress)
+                        drain_progress_events(progress_queue, renderer)
                         for future in completed:
-                            worker_index = futures.pop(future)
+                            episode_dir = futures.pop(future)
                             try:
-                                results.extend(future.result())
+                                result = future.result()
                             except Exception:
-                                tqdm.write(f"Failed worker {worker_index + 1}")
+                                tqdm.write(f"Failed episode: {episode_dir.name}")
                                 raise
-                    drain_progress_events(progress_queue, renderer, progress)
+                            results.append(result)
+                            update_overall_progress(progress, result)
+                    drain_progress_events(progress_queue, renderer)
     finally:
         renderer.close()
     return sorted(results, key=lambda row: row["episode_uid"])
