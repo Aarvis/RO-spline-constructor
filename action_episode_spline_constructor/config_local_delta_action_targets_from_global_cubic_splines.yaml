@@ -1,0 +1,30 @@
+# The saved global action spline must have degree 3 and be present in every episode's arrays directory.
+dataset_root: D:/Robot-Origami-Challenge/Competition_Paper_Reprocessed_Dataset
+num_workers: 10
+max_episodes: 10
+
+input:
+  global_spline_npz_name: global_action_spline.npz
+  action_array_name: action_65d.npy
+  state_array_name: state_65d.npy
+
+sampling:
+  # Starting from each frame's containing global knot span, include this many future unique spans.
+  target_knot_spans: 10
+  sample_stride: 1
+  # False means tail frames without all requested spans are omitted instead of shortened.
+  include_truncated_horizons: false
+  # Worker progress is sent to the parent at this cadence, not for every sample.
+  progress_update_every_samples: 25
+
+validation:
+  # Verifies exact restriction plus state translation at evenly spaced local parameters.
+  restriction_validation_points: 5
+  restriction_validation_tolerance: 1.0e-8
+
+output:
+  # Set null to save outputs next to source arrays inside the dataset.
+  output_dir: null
+  # The generated filenames always add _knotspans<target_knot_spans>.
+  output_prefix: local_delta_action_cubic
+  overwrite: false
